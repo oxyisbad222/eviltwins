@@ -1,4 +1,3 @@
-javascript
 import {
     onAuthStateChanged,
     GoogleAuthProvider,
