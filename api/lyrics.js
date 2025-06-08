@@ -7,7 +7,7 @@ import fetch from 'node-fetch';
 // You'll also need to add 'genius-lyrics-api' to your package.json.
 import { getLyrics } from 'genius-lyrics-api';
 
-// This is your handler function for Vercel.
+// This is the handler function for Vercel.
 export default async function handler(request, response) {
     // Extract song title and artist from the query parameters.
     const { title, artist } = request.query;
@@ -16,12 +16,13 @@ export default async function handler(request, response) {
         return response.status(400).json({ error: 'Title and artist are required.' });
     }
 
-    // IMPORTANT: Store your Genius API Access Token as an Environment Variable in Vercel.
-    // Do NOT hardcode it here.
+    // IMPORTANT: This reads your Genius API Access Token from your Vercel Environment Variables.
+    // It is kept secure and is not exposed on the front end.
     const accessToken = process.env.GENIUS_ACCESS_TOKEN;
 
     if (!accessToken) {
-        return response.status(500).json({ error: 'Genius API token is not configured.' });
+        console.error("GENIUS_ACCESS_TOKEN environment variable is not set.");
+        return response.status(500).json({ error: 'Genius API token is not configured on the server.' });
     }
 
     const options = {
@@ -40,10 +41,10 @@ export default async function handler(request, response) {
             response.status(200).json({ lyrics });
         } else {
             // If lyrics are not found
-            response.status(404).json({ lyrics: 'Lyrics not found for this song.' });
+            response.status(404).json({ lyrics: 'Lyrics not available for this song.' });
         }
     } catch (error) {
         console.error('Error fetching lyrics from Genius:', error);
-        response.status(500).json({ error: 'Failed to fetch lyrics.' });
+        response.status(500).json({ error: 'Failed to fetch lyrics from Genius API.' });
     }
 }
