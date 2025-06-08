@@ -48,23 +48,20 @@ let currentIndex = -1;
 let isPlaying = false;
 let currentUser = null;
 
-// The URL to your M3U8 playlist file. Using a leading slash ensures it's relative to the root domain.
-const playlistUrl = '/juice.m3u8';
-// URL for the Vercel serverless function to fetch lyrics.
+const playlistUrl = 'https://raw.githubusercontent.com/oxyisbad222/eviltwins/main/juice.m3u8';
 const geniusApiUrl = '/api/lyrics';
 
-
 // --- INITIALIZATION ---
-// Wait for the 'firebase-ready' event from index.html before using firebase services
-document.addEventListener('firebase-ready', () => {
+document.addEventListener('firebase-ready', async () => {
     console.log("Firebase is ready. Initializing app...");
     const auth = window.auth;
     const db = window.db;
 
-    // Set up listeners and load initial data
+    // **FIXED: Await playlist loading to prevent race conditions**
+    await loadPlaylist(); 
+    
     setupEventListeners(auth);
     setupAuthObserver(auth);
-    loadPlaylist();
     setupTopTracksListener(db);
 });
 
@@ -73,19 +70,26 @@ document.addEventListener('firebase-ready', () => {
  */
 async function loadPlaylist() {
     try {
-        const response = await fetch(playlistUrl);
+        // Use a cache-busting query parameter to ensure we get the latest version
+        const response = await fetch(`${playlistUrl}?t=${new Date().getTime()}`);
         if (!response.ok) {
-            throw new Error(`Failed to fetch playlist: ${response.status} ${response.statusText}`);
+            throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
         }
         const m3u8Content = await response.text();
+        if (!m3u8Content) {
+            throw new Error("Playlist file is empty.");
+        }
         parseM3u8(m3u8Content);
-        renderPlaylist();
+        if (playlist.length === 0) {
+            throw new Error("Playlist parsed, but no valid songs were found. Check the format of juice.m3u8.");
+        }
+        renderPlaylist(); // Render the full playlist now that it's loaded
     } catch (error) {
-        console.error("Error loading playlist:", error);
+        console.error("Fatal Error loading playlist:", error);
         playlistContainer.innerHTML = `
             <div class="p-4 text-center text-red-400 bg-red-900/20 rounded-lg">
-                <p class="font-bold">Failed to load playlist.</p>
-                <p class="text-sm mt-2">Please ensure the <code>juice.m3u8</code> file exists in the root of your GitHub repository and that the site has been successfully redeployed.</p>
+                <p class="font-bold">Failed to load music library.</p>
+                <p class="text-sm mt-2">Please ensure the <a href="${playlistUrl}" target="_blank" class="underline">playlist file</a> is accessible and correctly formatted. Refreshing the page might help.</p>
             </div>
         `;
     }
@@ -93,8 +97,6 @@ async function loadPlaylist() {
 
 /**
  * Parses the text content of an M3U8 file to build the playlist array.
- * Assumes a format with #EXTINF followed by the MP3 URL.
- * @param {string} m3u8Content - The raw text of the M3U8 file.
  */
 function parseM3u8(m3u8Content) {
     const lines = m3u8Content.trim().split('\n');
@@ -112,10 +114,17 @@ function parseM3u8(m3u8Content) {
                 let artist = 'Unknown Artist';
 
                 if (metadataMatch) {
-                    const metadata = metadataMatch[1].split(' - ');
-                    artist = metadata[0].trim();
-                    title = metadata[1] ? metadata[1].trim() : artist;
-                    if (!metadata[1]) artist = "Juice WRLD";
+                    const metadata = metadataMatch[1];
+                    // Handle format "Artist - [Album] Title"
+                    const albumMatch = metadata.match(/(.+) - \[(.+)\] (.+)/);
+                    if (albumMatch) {
+                        artist = albumMatch[1].trim();
+                        title = albumMatch[3].trim();
+                    } else { // Handle format "Artist - Title"
+                         const simpleMatch = metadata.split(' - ');
+                         artist = simpleMatch[0].trim();
+                         title = simpleMatch.length > 1 ? simpleMatch[1].trim() : artist;
+                    }
                 }
                 
                 newPlaylist.push({
@@ -130,7 +139,7 @@ function parseM3u8(m3u8Content) {
         }
     }
     playlist = newPlaylist;
-    console.log(`Playlist loaded with ${playlist.length} songs.`);
+    console.log(`Playlist loaded successfully with ${playlist.length} songs.`);
 }
 
 
@@ -138,7 +147,6 @@ function parseM3u8(m3u8Content) {
 
 /**
  * Renders the entire playlist or a filtered version based on search text.
- * @param {string} [searchText=''] - Text to filter the playlist by.
  */
 function renderPlaylist(searchText = '') {
     playlistContainer.innerHTML = '';
@@ -148,9 +156,7 @@ function renderPlaylist(searchText = '') {
     );
 
     if (filteredPlaylist.length === 0) {
-        if (playlist.length > 0) {
-            playlistContainer.innerHTML = `<p class="text-gray-400 p-4">No songs found matching your search.</p>`;
-        }
+        playlistContainer.innerHTML = `<p class="text-gray-400 p-4">No songs found.</p>`;
         return;
     }
 
@@ -209,7 +215,6 @@ function updateActiveSongUI() {
 
 /**
  * Plays a song from the playlist at a given index.
- * @param {number} index - The index of the song in the playlist.
  */
 function playSong(index) {
     if (index < 0 || index >= playlist.length) return;
@@ -220,6 +225,10 @@ function playSong(index) {
     if (Hls.isSupported()) {
         if (hls) hls.destroy();
         hls = new Hls();
+        hls.on(Hls.Events.ERROR, function (event, data) {
+            console.error('HLS.js Error:', data);
+        });
+
         hls.loadSource(song.url);
         hls.attachMedia(audioPlayer);
         hls.on(Hls.Events.MANIFEST_PARSED, () => audioPlayer.play());
@@ -228,8 +237,6 @@ function playSong(index) {
         audioPlayer.addEventListener('loadedmetadata', () => audioPlayer.play());
     }
     
-    isPlaying = true;
-    playPauseIcon.className = 'fas fa-pause';
     updateActiveSongUI();
     fetchLyrics(song.title, song.artist);
     trackSongPlay(song);
@@ -242,14 +249,21 @@ function togglePlayPause() {
     }
     if (!audioPlayer.src) return;
 
-    if (isPlaying) {
-        audioPlayer.pause();
-    } else {
+    if (audioPlayer.paused) {
         audioPlayer.play();
+    } else {
+        audioPlayer.pause();
     }
-    isPlaying = !isPlaying;
-    playPauseIcon.className = isPlaying ? 'fas fa-pause' : 'fas fa-play';
 }
+
+audioPlayer.onplay = () => {
+    isPlaying = true;
+    playPauseIcon.className = 'fas fa-pause';
+};
+audioPlayer.onpause = () => {
+    isPlaying = false;
+    playPauseIcon.className = 'fas fa-play';
+};
 
 function playNext() {
     let nextIndex = currentIndex + 1;
@@ -264,17 +278,10 @@ function playPrev() {
 }
 
 // --- LYRICS ---
-
-/**
- * Fetches lyrics from the Genius API via our serverless function.
- * @param {string} title - The title of the song.
- * @param {string} artist - The artist of the song.
- */
 async function fetchLyrics(title, artist) {
     lyricsSongTitle.textContent = title;
     lyricsSongArtist.textContent = artist;
     lyricsContent.innerHTML = `<i class="fas fa-spinner fa-spin text-2xl"></i><p class="mt-2">Searching for lyrics...</p>`;
-
     try {
         const response = await fetch(`${geniusApiUrl}?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`);
         if (!response.ok) throw new Error('Lyrics API error.');
@@ -428,9 +435,14 @@ function setupEventListeners() {
     audioPlayer.addEventListener('loadedmetadata', () => durationEl.textContent = formatTime(audioPlayer.duration));
     audioPlayer.addEventListener('ended', playNext);
     
+    audioPlayer.addEventListener('error', (e) => {
+        console.error("Audio player error:", e);
+        playerSongArtist.textContent = "Error: Cannot play audio";
+    });
+
     seekBar.addEventListener('input', () => {
         if (audioPlayer.duration) {
-            audioPlayer.currentTime = (seekBar.value / 100) * audioPlayer.duration;
+            audioPlayer.currentTime = (audioPlayer.value / 100) * audioPlayer.duration;
         }
     });
 
@@ -443,7 +455,6 @@ function setupEventListeners() {
 }
 
 // --- UTILITY FUNCTIONS ---
-
 function formatTime(seconds) {
     if (isNaN(seconds)) return '0:00';
     const minutes = Math.floor(seconds / 60);
@@ -461,6 +472,7 @@ async function downloadCurrentSong() {
 
     try {
         const response = await fetch(song.url);
+        if (!response.ok) throw new Error('Network response was not ok');
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -473,7 +485,7 @@ async function downloadCurrentSong() {
         a.remove();
     } catch (error) {
         console.error('Download failed:', error);
-        alert('Could not download the song.');
+        alert('Could not download the song. The file URL may be invalid or blocked by a security policy.');
     } finally {
         downloadBtn.innerHTML = originalIcon;
         downloadBtn.disabled = false;
