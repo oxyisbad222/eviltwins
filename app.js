@@ -1,3 +1,4 @@
+javascript
 import {
     onAuthStateChanged,
     GoogleAuthProvider,
@@ -52,18 +53,33 @@ const playlistUrl = 'https://raw.githubusercontent.com/oxyisbad222/eviltwins/mai
 const geniusApiUrl = '/api/lyrics';
 
 // --- INITIALIZATION ---
-document.addEventListener('firebase-ready', async () => {
+// **FIXED: This listener is the entry point. It waits for Firebase to be ready.**
+document.addEventListener('firebase-ready', main);
+
+/**
+ * The main function that kicks off the application logic AFTER firebase is ready.
+ */
+async function main() {
     console.log("Firebase is ready. Initializing app...");
+    
+    // Make Firebase services available to the whole script
     const auth = window.auth;
     const db = window.db;
 
-    // **FIXED: Await playlist loading to prevent race conditions**
-    await loadPlaylist(); 
-    
-    setupEventListeners(auth);
-    setupAuthObserver(auth);
-    setupTopTracksListener(db);
-});
+    if (!auth || !db) {
+        console.error("Fatal Error: Firebase services are not available on the window object.");
+        return;
+    }
+
+    try {
+        await loadPlaylist();
+        setupEventListeners();
+        setupAuthObserver(auth);
+        setupTopTracksListener(db);
+    } catch (error) {
+        console.error("An error occurred during app initialization:", error);
+    }
+}
 
 /**
  * Loads and parses the M3U8 playlist file.
@@ -92,6 +108,8 @@ async function loadPlaylist() {
                 <p class="text-sm mt-2">Please ensure the <a href="${playlistUrl}" target="_blank" class="underline">playlist file</a> is accessible and correctly formatted. Refreshing the page might help.</p>
             </div>
         `;
+        // Re-throw the error to stop the main execution if the playlist fails
+        throw error;
     }
 }
 
