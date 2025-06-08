@@ -1,3 +1,10 @@
+
+```
+
+And here is the more robust `app.js` file.
+
+
+```javascript
 import {
     onAuthStateChanged,
     GoogleAuthProvider,
@@ -52,16 +59,10 @@ const playlistUrl = 'https://raw.githubusercontent.com/oxyisbad222/eviltwins/mai
 const geniusApiUrl = '/api/lyrics';
 
 // --- INITIALIZATION ---
-// **FIXED: This listener is the entry point. It waits for Firebase to be ready.**
-document.addEventListener('firebase-ready', main);
-
-/**
- * The main function that kicks off the application logic AFTER firebase is ready.
- */
-async function main() {
+// This listener is the entry point. It waits for Firebase to be ready.
+document.addEventListener('firebase-ready', async () => {
     console.log("Firebase is ready. Initializing app...");
-    
-    // Make Firebase services available to the whole script
+
     const auth = window.auth;
     const db = window.db;
 
@@ -71,21 +72,25 @@ async function main() {
     }
 
     try {
+        // Load the playlist first, as it's critical for the UI.
         await loadPlaylist();
+        
+        // Now that the playlist is loaded and rendered, set up all interactive parts.
         setupEventListeners();
         setupAuthObserver(auth);
         setupTopTracksListener(db);
     } catch (error) {
-        console.error("An error occurred during app initialization:", error);
+        // Errors from loadPlaylist will be caught here, preventing further execution.
+        console.error("A fatal error occurred during app initialization:", error);
     }
-}
+});
+
 
 /**
  * Loads and parses the M3U8 playlist file.
  */
 async function loadPlaylist() {
     try {
-        // Use a cache-busting query parameter to ensure we get the latest version
         const response = await fetch(`${playlistUrl}?t=${new Date().getTime()}`);
         if (!response.ok) {
             throw new Error(`Network response was not ok: ${response.status} ${response.statusText}`);
@@ -98,7 +103,7 @@ async function loadPlaylist() {
         if (playlist.length === 0) {
             throw new Error("Playlist parsed, but no valid songs were found. Check the format of juice.m3u8.");
         }
-        renderPlaylist(); // Render the full playlist now that it's loaded
+        renderPlaylist();
     } catch (error) {
         console.error("Fatal Error loading playlist:", error);
         playlistContainer.innerHTML = `
@@ -132,12 +137,11 @@ function parseM3u8(m3u8Content) {
 
                 if (metadataMatch) {
                     const metadata = metadataMatch[1];
-                    // Handle format "Artist - [Album] Title"
                     const albumMatch = metadata.match(/(.+) - \[(.+)\] (.+)/);
                     if (albumMatch) {
                         artist = albumMatch[1].trim();
                         title = albumMatch[3].trim();
-                    } else { // Handle format "Artist - Title"
+                    } else {
                          const simpleMatch = metadata.split(' - ');
                          artist = simpleMatch[0].trim();
                          title = simpleMatch.length > 1 ? simpleMatch[1].trim() : artist;
@@ -161,10 +165,6 @@ function parseM3u8(m3u8Content) {
 
 
 // --- UI RENDERING ---
-
-/**
- * Renders the entire playlist or a filtered version based on search text.
- */
 function renderPlaylist(searchText = '') {
     playlistContainer.innerHTML = '';
     const filteredPlaylist = playlist.filter(song =>
@@ -201,9 +201,6 @@ function renderPlaylist(searchText = '') {
     });
 }
 
-/**
- * Updates the UI for the currently playing song in the player bar and playlist.
- */
 function updateActiveSongUI() {
     if (currentIndex > -1 && playlist[currentIndex]) {
         const song = playlist[currentIndex];
@@ -229,10 +226,6 @@ function updateActiveSongUI() {
 
 
 // --- PLAYER LOGIC ---
-
-/**
- * Plays a song from the playlist at a given index.
- */
 function playSong(index) {
     if (index < 0 || index >= playlist.length) return;
     
@@ -311,7 +304,6 @@ async function fetchLyrics(title, artist) {
 }
 
 // --- AUTHENTICATION ---
-
 function setupAuthObserver(auth) {
     onAuthStateChanged(auth, user => {
         currentUser = user;
@@ -371,7 +363,6 @@ function showAccountModal(user) {
 }
 
 // --- FIRESTORE DATA ---
-
 async function trackSongPlay(song) {
     if (!song || !song.title) return;
     const db = window.db;
@@ -493,7 +484,7 @@ async function downloadCurrentSong() {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.style.display = 'none';
+a.style.display = 'none';
         a.href = url;
         a.download = `${song.artist} - ${song.title}.mp3`;
         document.body.appendChild(a);
