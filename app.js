@@ -1,10 +1,3 @@
-
-```
-
-And here is the more robust `app.js` file.
-
-
-```javascript
 import {
     onAuthStateChanged,
     GoogleAuthProvider,
